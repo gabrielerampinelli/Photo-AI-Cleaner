@@ -71,6 +71,11 @@ class MainWindow(QMainWindow):
         self._search: Optional[SearchService] = None
         self._indexer: Optional[IndexingWorker] = None
         self._viewers: List[ImageViewerDialog] = []
+        # Keeps short-lived QRunnables referenced until they finish: without a
+        # strong reference Python may garbage-collect the worker (and its
+        # signals QObject) before run() emits, raising "Signal source has been
+        # deleted".
+        self._active_workers: set = set()
 
         self.setWindowTitle("Photo AI Cleaner")
         self.resize(1200, 820)
@@ -193,6 +198,21 @@ class MainWindow(QMainWindow):
         self.addAction(reindex)
 
     # ------------------------------------------------------------------ #
+    # Worker dispatch
+    # ------------------------------------------------------------------ #
+    def _start_retained(self, worker, *terminal_signals) -> None:
+        """Start a QRunnable, keeping it alive until one of its end signals.
+
+        Prevents the worker (and its signals object) from being garbage
+        collected mid-run. ``terminal_signals`` are the signals that mark the
+        job as finished (e.g. ``ready``/``failed``).
+        """
+        self._active_workers.add(worker)
+        for signal in terminal_signals:
+            signal.connect(lambda *_, w=worker: self._active_workers.discard(w))
+        self._pool.start(worker)
+
+    # ------------------------------------------------------------------ #
     # Encoder / device lifecycle
     # ------------------------------------------------------------------ #
     def _load_encoder(self) -> None:
@@ -201,7 +221,7 @@ class MainWindow(QMainWindow):
         loader = EncoderLoader(self._config)
         loader.signals.loaded.connect(self._on_encoder_loaded)
         loader.signals.error.connect(self._on_encoder_error)
-        self._pool.start(loader)
+        self._start_retained(loader, loader.signals.loaded, loader.signals.error)
 
     def _on_encoder_loaded(self, encoder: ImageEncoder) -> None:
         self._encoder = encoder
@@ -263,7 +283,7 @@ class MainWindow(QMainWindow):
         )
         worker.signals.results.connect(self._on_search_results)
         worker.signals.error.connect(self._on_worker_error)
-        self._pool.start(worker)
+        self._start_retained(worker, worker.signals.results, worker.signals.error)
 
     def _on_find_similar(self, rowid: int) -> None:
         if not self._ensure_ready():
@@ -277,7 +297,7 @@ class MainWindow(QMainWindow):
         )
         worker.signals.results.connect(self._on_search_results)
         worker.signals.error.connect(self._on_worker_error)
-        self._pool.start(worker)
+        self._start_retained(worker, worker.signals.results, worker.signals.error)
 
     def _on_image_dropped(self, local_path: str) -> None:
         if not self._ensure_ready():
@@ -300,7 +320,7 @@ class MainWindow(QMainWindow):
         )
         worker.signals.results.connect(self._on_search_results)
         worker.signals.error.connect(self._on_worker_error)
-        self._pool.start(worker)
+        self._start_retained(worker, worker.signals.results, worker.signals.error)
 
     def _on_search_results(self, label: str, results: List[SearchResult]) -> None:
         self._results.set_results(results)
@@ -320,32 +340,48 @@ class MainWindow(QMainWindow):
             self._adb, self._cache, phone_path, max_side=self._config.thumbnail_max_side
         )
         worker.signals.ready.connect(self._results.set_thumbnail)
-        self._pool.start(worker)
+        self._start_retained(worker, worker.signals.ready, worker.signals.failed)
 
     # ------------------------------------------------------------------ #
     # Opening a photo at full resolution
     # ------------------------------------------------------------------ #
     def _on_open_image(self, record: ImageRecord) -> None:
-        """Open a full-resolution viewer for a double-clicked photo."""
-        viewer = ImageViewerDialog(record.filename, self)
+        """Open a full-resolution viewer with prev/next navigation."""
+        records = self._results.all_records()
+        try:
+            start = next(
+                i for i, r in enumerate(records) if r.phone_path == record.phone_path
+            )
+        except StopIteration:
+            records, start = [record], 0
+
+        viewer = ImageViewerDialog(self)
         self._viewers.append(viewer)
         viewer.finished.connect(
             lambda _=0, v=viewer: self._viewers.remove(v) if v in self._viewers else None
         )
+        # The viewer asks the main window to fetch each photo it navigates to.
+        viewer.photo_requested.connect(
+            lambda rec, v=viewer: self._load_into_viewer(v, rec)
+        )
+        viewer.set_playlist(records, start)  # triggers the first fetch
         viewer.show()
         # Bring the viewer to the front: otherwise on Windows it can open behind
         # a maximised main window and appear as if "nothing happened".
         viewer.raise_()
         viewer.activateWindow()
-        self._set_status(f"Apertura {record.filename}...")
 
+    def _load_into_viewer(self, viewer: ImageViewerDialog, record: ImageRecord) -> None:
+        """Stream a photo and feed it to the viewer (GUI-thread slots)."""
+        self._set_status(f"Apertura {record.filename}...")
         worker = FullImageWorker(self._adb, record.phone_path)
         # Connect to the viewer's bound slots (not lambdas): a cross-thread
         # signal to a QObject method uses a queued connection, so the QPixmap
-        # work runs on the GUI thread. A lambda would run in the worker thread.
+        # work runs on the GUI thread. The viewer ignores results for a photo
+        # the user has already navigated away from.
         worker.signals.ready.connect(viewer.on_ready)
         worker.signals.failed.connect(viewer.on_failed)
-        self._pool.start(worker)
+        self._start_retained(worker, worker.signals.ready, worker.signals.failed)
 
     # ------------------------------------------------------------------ #
     # Selection / deletion
@@ -388,7 +424,7 @@ class MainWindow(QMainWindow):
         )
         worker.signals.finished.connect(self._on_delete_finished)
         worker.signals.error.connect(self._on_worker_error)
-        self._pool.start(worker)
+        self._start_retained(worker, worker.signals.finished, worker.signals.error)
 
     def _on_delete_finished(self, removed_paths: List[str]) -> None:
         self._set_busy(False)
