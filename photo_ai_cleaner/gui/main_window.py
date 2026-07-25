@@ -386,7 +386,7 @@ class MainWindow(QMainWindow):
                 "L'operazione è irreversibile."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
@@ -442,7 +442,7 @@ class MainWindow(QMainWindow):
                 "L'operazione è irreversibile. Continuare?"
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
