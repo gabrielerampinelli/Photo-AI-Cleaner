@@ -1,0 +1,24 @@
+# Photo AI Cleaner - runtime dependencies (Python 3.12+)
+#
+# Install with:   pip install -r requirements.txt
+#
+# This installs the CPU build of PyTorch by default. For NVIDIA GPU
+# acceleration, install the matching CUDA build afterwards (see
+# docs/INSTALLATION.md, step 4), e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126 --force-reinstall
+
+# --- GUI ---
+PySide6>=6.6
+
+# --- Imaging / math ---
+Pillow>=10.2
+numpy>=1.26
+
+# --- Vector search ---
+faiss-cpu>=1.8
+
+# --- AI backends (OpenCLIP is the default; SigLIP is optional) ---
+open_clip_torch>=2.24
+torch>=2.2
+torchvision>=0.17
+transformers>=4.40

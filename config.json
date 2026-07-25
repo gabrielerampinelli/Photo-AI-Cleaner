@@ -1,0 +1,22 @@
+{
+  "model_backend": "open_clip",
+  "model_name": "ViT-L-14-quickgelu",
+  "model_pretrained": "dfn2b",
+  "device": "cuda",
+  "folders": [
+    "/sdcard/DCIM",
+    "/sdcard/Pictures",
+    "/sdcard/Download",
+    "/sdcard/Android/media"
+  ],
+  "batch_size": 8,
+  "min_score": 0.2,
+  "max_results": 500,
+  "thumbnail_cache_size": 512,
+  "thumbnail_max_side": 256,
+  "image_resize": 224,
+  "max_index_workers": 4,
+  "adb_path": "C:\\Users\\rampi\\AppData\\Local\\Android\\platform-tools\\adb.exe",
+  "theme": "dark",
+  "log_level": "INFO"
+}

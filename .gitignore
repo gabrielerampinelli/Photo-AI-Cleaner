@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.manifest
+*.spec
+
+# ---------------------------------------------------------------------------
+# Virtual environments
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------------------
+# Tooling / caches
+# ---------------------------------------------------------------------------
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# ---------------------------------------------------------------------------
+# Application runtime data
+#
+# At runtime the app stores everything under %LOCALAPPDATA%\PhotoAICleaner\,
+# but ignore these here too in case anyone runs from the project directory.
+# ---------------------------------------------------------------------------
+*.db
+*.db-wal
+*.db-shm
+*.faiss
+logs/
+models/
+
+# Local per-user config (the project config.json is kept as a template).
+# Uncomment if you keep a personal config in the repo root:
+# config.local.json
+
+# Scratch / temporary
+scratchpad/
+tmp/
+*.log
