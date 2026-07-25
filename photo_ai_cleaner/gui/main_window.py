@@ -364,12 +364,47 @@ class MainWindow(QMainWindow):
         viewer.photo_requested.connect(
             lambda rec, v=viewer: self._load_into_viewer(v, rec)
         )
+        # Delete the currently shown photo (Canc) from within the viewer.
+        viewer.delete_requested.connect(
+            lambda rec, v=viewer: self._delete_from_viewer(v, rec)
+        )
         viewer.set_playlist(records, start)  # triggers the first fetch
         viewer.show()
         # Bring the viewer to the front: otherwise on Windows it can open behind
         # a maximised main window and appear as if "nothing happened".
         viewer.raise_()
         viewer.activateWindow()
+
+    def _delete_from_viewer(self, viewer: ImageViewerDialog, record: ImageRecord) -> None:
+        """Confirm and delete the photo currently shown in the viewer."""
+        confirm = QMessageBox.question(
+            viewer,
+            "Conferma eliminazione",
+            (
+                "Eliminare questa foto dal telefono?\n\n"
+                f"{record.filename}  ({human_size(record.size)})\n\n"
+                "L'operazione è irreversibile."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        worker = DeleteWorker(
+            self._adb,
+            self._database,
+            self._index,
+            self._cache,
+            rowids=[record.rowid],
+            phone_paths=[record.phone_path],
+        )
+        # Both slots are bound QObject methods -> queued to the GUI thread.
+        worker.signals.finished.connect(self._on_delete_finished)  # updates the grid
+        worker.signals.finished.connect(viewer.on_deleted)  # advances/closes the viewer
+        worker.signals.error.connect(self._on_worker_error)
+        self._set_busy(True)
+        self._start_retained(worker, worker.signals.finished, worker.signals.error)
 
     def _load_into_viewer(self, viewer: ImageViewerDialog, record: ImageRecord) -> None:
         """Stream a photo and feed it to the viewer (GUI-thread slots)."""

@@ -31,6 +31,8 @@ class ImageViewerDialog(QDialog):
 
     #: Emitted when a (new) photo must be fetched by the main window.
     photo_requested = Signal(object)  # ImageRecord
+    #: Emitted when the user presses Delete on the currently shown photo.
+    delete_requested = Signal(object)  # ImageRecord
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -110,12 +112,46 @@ class ImageViewerDialog(QDialog):
         record = self._records[self._index]
         self._current_path = record.phone_path
         self._source = None
+        self._label.setText("Caricamento immagine...")
+        self._refresh_nav()
+        self.photo_requested.emit(record)
+
+    def _refresh_nav(self) -> None:
+        """Update the title (position) and enable/disable the arrow buttons."""
+        if not self._records:
+            return
+        record = self._records[self._index]
         total = len(self._records)
         self.setWindowTitle(f"{record.filename}  ({self._index + 1}/{total})")
-        self._label.setText("Caricamento immagine...")
         self._prev_btn.setEnabled(self._index > 0)
         self._next_btn.setEnabled(self._index < total - 1)
-        self.photo_requested.emit(record)
+
+    @Slot(list)
+    def on_deleted(self, removed_paths: list) -> None:
+        """Remove deleted photos from the playlist and advance/close.
+
+        Called after a successful deletion. If the currently shown photo was
+        deleted, the next one (or the previous, if it was the last) is shown;
+        if the playlist becomes empty the viewer closes.
+        """
+        removed = set(removed_paths)
+        if not removed:
+            return
+        current_removed = self._current_path in removed
+        self._records = [r for r in self._records if r.phone_path not in removed]
+        if not self._records:
+            self.close()
+            return
+        if current_removed:
+            self._index = min(self._index, len(self._records) - 1)
+            self._show_current()
+        else:
+            # The shown photo survived; just re-locate it and refresh the arrows.
+            self._index = next(
+                (i for i, r in enumerate(self._records) if r.phone_path == self._current_path),
+                min(self._index, len(self._records) - 1),
+            )
+            self._refresh_nav()
 
     # ------------------------------------------------------------------ #
     # Worker callbacks (run on the GUI thread via queued connections)
@@ -167,6 +203,9 @@ class ImageViewerDialog(QDialog):
             self.show_previous()
         elif key in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_PageDown, Qt.Key.Key_Space):
             self.show_next()
+        elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if self._records:
+                self.delete_requested.emit(self._records[self._index])
         elif key == Qt.Key.Key_Escape:
             self.close()
         else:
