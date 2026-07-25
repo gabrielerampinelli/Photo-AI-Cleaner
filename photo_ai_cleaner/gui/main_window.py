@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
 
         self._check_device()
         self._load_encoder()
+        self._show_home()  # land on the full gallery of indexed images
 
     # ------------------------------------------------------------------ #
     # UI construction
@@ -114,6 +115,10 @@ class MainWindow(QMainWindow):
 
         # Action buttons row.
         buttons = QHBoxLayout()
+        self._home_btn = QPushButton("Home")
+        self._home_btn.clicked.connect(self._show_home)
+        buttons.addWidget(self._home_btn)
+
         self._select_all_btn = QPushButton("Seleziona tutto")
         self._select_all_btn.clicked.connect(lambda: self._results.select_all(True))
         buttons.addWidget(self._select_all_btn)
@@ -197,6 +202,11 @@ class MainWindow(QMainWindow):
         reindex.triggered.connect(self._on_index_toggle)
         self.addAction(reindex)
 
+        home = QAction(self)
+        home.setShortcut(QKeySequence("Ctrl+H"))
+        home.triggered.connect(self._show_home)
+        self.addAction(home)
+
     # ------------------------------------------------------------------ #
     # Worker dispatch
     # ------------------------------------------------------------------ #
@@ -267,6 +277,21 @@ class MainWindow(QMainWindow):
         else:
             self._set_status(f"Dispositivo non pronto: {info.message}")
             QMessageBox.warning(self, "Connessione telefono", info.message)
+
+    # ------------------------------------------------------------------ #
+    # Home (browse all indexed images)
+    # ------------------------------------------------------------------ #
+    def _show_home(self) -> None:
+        """Display every indexed image, newest first."""
+        records = self._database.recent_records()
+        self._results.set_records(records)
+        if records:
+            self._set_status(f"Home: {len(records)} immagini indicizzate")
+        else:
+            self._set_status(
+                "Nessuna immagine indicizzata. Collega il telefono e premi "
+                "'Aggiorna indice'."
+            )
 
     # ------------------------------------------------------------------ #
     # Search

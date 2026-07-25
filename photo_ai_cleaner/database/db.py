@@ -215,6 +215,18 @@ class Database:
         rows = conn.execute("SELECT * FROM images ORDER BY id").fetchall()
         return [self._row_to_record(row, with_embedding) for row in rows]
 
+    def recent_records(self, limit: Optional[int] = None) -> List[ImageRecord]:
+        """Return all records newest-first (for the Home gallery view).
+
+        Embeddings are not loaded (not needed for display).
+        """
+        conn = self._connect()
+        sql = "SELECT * FROM images ORDER BY created_at DESC, id DESC"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        rows = conn.execute(sql).fetchall()
+        return [self._row_to_record(row, with_embedding=False) for row in rows]
+
     def find_exact_duplicates(self) -> Dict[str, List[ImageRecord]]:
         """Group records that share the same SHA-256 (exact duplicates)."""
         conn = self._connect()

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QListWidget,
@@ -80,6 +80,8 @@ class ResultsWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._items_by_path: Dict[str, QListWidgetItem] = {}
+        self._requested: set[str] = set()  # paths whose thumbnail was requested
+        self._placeholder = self._make_placeholder_icon()
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -102,6 +104,9 @@ class ResultsWidget(QWidget):
         self._list.itemSelectionChanged.connect(self._emit_selection)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._list.return_pressed.connect(self._on_return_pressed)
+        # Lazily load thumbnails as the user scrolls (essential for the Home
+        # view with thousands of images).
+        self._list.verticalScrollBar().valueChanged.connect(self._request_visible_thumbnails)
 
         # Accept dropped image files onto the gallery (see _DropListWidget).
         self._list.setAcceptDrops(True)
@@ -113,13 +118,24 @@ class ResultsWidget(QWidget):
     # Populating results
     # ------------------------------------------------------------------ #
     def set_results(self, results: List[SearchResult]) -> None:
-        """Replace the gallery with a new list of results."""
+        """Show search results (caption includes the match percentage)."""
+        self._populate(
+            [r.record for r in results],
+            captions=[self._caption(r.record, r.score) for r in results],
+        )
+
+    def set_records(self, records: List[ImageRecord]) -> None:
+        """Show a plain list of images (Home view; caption is the filename)."""
+        self._populate(records, captions=[r.filename for r in records])
+
+    def _populate(self, records: List[ImageRecord], captions: List[str]) -> None:
+        """Fill the gallery. Thumbnails are requested lazily on scroll."""
+        self._list.setUpdatesEnabled(False)
         self._list.clear()
         self._items_by_path.clear()
-        placeholder = self._placeholder_icon()
-        for result in results:
-            record = result.record
-            item = QListWidgetItem(placeholder, self._caption(record, result.score))
+        self._requested.clear()
+        for record, caption in zip(records, captions):
+            item = QListWidgetItem(self._placeholder, caption)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(_ROLE_RECORD, record)
@@ -127,8 +143,27 @@ class ResultsWidget(QWidget):
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
             self._list.addItem(item)
             self._items_by_path[record.phone_path] = item
-            self.thumbnail_needed.emit(record.phone_path)
+        self._list.setUpdatesEnabled(True)
         self.selection_changed.emit(0, 0)
+        # Request thumbnails for the initially visible items once layout settles.
+        QTimer.singleShot(0, self._request_visible_thumbnails)
+
+    def _request_visible_thumbnails(self) -> None:
+        """Emit thumbnail_needed for on-screen items not yet requested."""
+        if self._list.count() == 0:
+            return
+        viewport = self._list.viewport().rect()
+        # A generous vertical buffer so thumbnails are ready just before scroll.
+        buffer = viewport.height()
+        visible = viewport.adjusted(0, -buffer, 0, buffer)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item.data(_ROLE_RECORD).phone_path in self._requested:
+                continue
+            if self._list.visualItemRect(item).intersects(visible):
+                path = item.data(_ROLE_RECORD).phone_path
+                self._requested.add(path)
+                self.thumbnail_needed.emit(path)
 
     def set_thumbnail(self, phone_path: str, jpeg_bytes: bytes) -> None:
         """Attach a fetched thumbnail to the matching item."""
@@ -249,7 +284,12 @@ class ResultsWidget(QWidget):
         return f"{record.filename}\n{score * 100:.0f}%"
 
     @staticmethod
-    def _placeholder_icon() -> QIcon:
+    def _make_placeholder_icon() -> QIcon:
         pix = QPixmap(_THUMB_SIZE, _THUMB_SIZE)
         pix.fill(Qt.GlobalColor.darkGray)
         return QIcon(pix)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Load thumbnails for items revealed when the grid reflows on resize."""
+        super().resizeEvent(event)
+        self._request_visible_thumbnails()
